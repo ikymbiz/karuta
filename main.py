@@ -93,6 +93,7 @@ def main():
     with col1:
         if st.button('あたらしい　よみふだ'):
             hiragana, yomifuda = karuta.select_yomifuda()
+            karuta.read_out_script()
             st.session_state.display_text['hiragana'] = hiragana
             st.session_state.display_text['yomifuda'] = yomifuda
             st.rerun()
