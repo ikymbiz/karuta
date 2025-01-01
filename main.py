@@ -2,47 +2,22 @@ import streamlit as st
 import pandas as pd
 import random
 from gtts import gTTS
-import time
-import os
-from pathlib import Path
-from tempfile import NamedTemporaryFile
-import pygame
+import base64
 import io
 
-# デフォルトのファイルパスを設定
-default_file_path = "data/scripts.csv"
-
-def text_to_speech(text, rate, volume, lang='ja'):
-    """テキストを音声に変換して読み上げる"""
-    pygame.mixer.quit()
-
-    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-    temp_path = os.path.join(temp_dir, 'temp_audio.mp3')
-
+def text_to_speech(text, lang='ja'):
+    """テキストを音声に変換してbase64エンコードされた音声データを返す"""
     try:
-        tts = gTTS(text=text, lang=lang, slow=(rate < 100))
-        tts.save(temp_path)
-
-        pygame.mixer.init()
-        pygame.mixer.music.load(temp_path)
-        pygame.mixer.music.set_volume(volume / 2)
-        pygame.mixer.music.play()
-
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-
+        tts = gTTS(text=text, lang=lang)
+        audio_fp = io.BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
+        audio_bytes = audio_fp.read()
+        b64 = base64.b64encode(audio_bytes).decode()
+        return f'<audio autoplay><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
     except Exception as e:
-        st.error(f"音声再生中にエラーが発生しました: {e}")
-
-    finally:
-        pygame.mixer.quit()
-        try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception as e:
-            pass
-
+        st.error(f"音声変換中にエラーが発生しました: {e}")
+        return None
 
 def select_script(df):
     """データフレームからランダムに1行選択して削除"""
@@ -56,7 +31,6 @@ def select_script(df):
     df.reset_index(drop=True, inplace=True)
 
     return selected['ひらがな'], selected['script']
-
 
 class Karuta:
     def __init__(self, data):
@@ -77,21 +51,18 @@ class Karuta:
             st.error(f"エラーが発生しました: {e}")
             self.scripts = pd.DataFrame(columns=['ひらがな', 'script'])
 
-    def read_out_script(self, rate, volume):
+    def read_out_script(self):
         """現在の読み札を読み上げ"""
         if self.current_hiragana and self.current_yomifuda:
-            text_to_speech(
-                f"{self.current_hiragana}、{self.current_yomifuda}",
-                rate=rate,
-                volume=volume
-            )
+            audio_html = text_to_speech(f"{self.current_hiragana}、{self.current_yomifuda}")
+            if audio_html:
+                st.markdown(audio_html, unsafe_allow_html=True)
 
-    def select_yomifuda(self, rate, volume):
+    def select_yomifuda(self):
         """新しい読み札を選択して読み上げ"""
         self.current_hiragana, self.current_yomifuda = select_script(self.scripts)
-        self.read_out_script(rate, volume)
+        self.read_out_script()
         return self.current_hiragana, self.current_yomifuda
-
 
 def main():
     st.header('かるたゲーム')
@@ -102,8 +73,6 @@ def main():
     with st.sidebar:
         st.markdown("### ゲーム設定")
         uploaded_file = st.file_uploader("CSVファイルをアップロード", type=['csv'])
-        rate = st.slider('スピーチの速度', 50, 300, 120)
-        volume = st.slider('音量', 0.0, 10.0, 5.0)
 
     # カルタゲームの初期化
     if 'karuta' not in st.session_state or uploaded_file:
@@ -112,12 +81,9 @@ def main():
             df = pd.read_csv(uploaded_file, encoding='utf-8')
             st.session_state.karuta = Karuta(df)
         else:
-            # デフォルトのファイルを使用
-            if Path(default_file_path).exists():
-                st.session_state.karuta = Karuta(default_file_path)
-            else:
-                st.error(f"デフォルトのCSVファイルが見つかりません: {default_file_path}")
-                return
+            # デフォルトのデータを使用
+            default_data = pd.read_csv('data/scripts.csv', encoding='utf-8')
+            st.session_state.karuta = Karuta(default_data)
 
     karuta = st.session_state.karuta
 
@@ -126,14 +92,14 @@ def main():
 
     with col1:
         if st.button('あたらしい　よみふだ'):
-            hiragana, yomifuda = karuta.select_yomifuda(rate, volume)
+            hiragana, yomifuda = karuta.select_yomifuda()
             st.session_state.display_text['hiragana'] = hiragana
             st.session_state.display_text['yomifuda'] = yomifuda
             st.rerun()
 
     with col2:
         if st.button('もういちど　よむ'):
-            karuta.read_out_script(rate, volume)
+            karuta.read_out_script()
 
     with col3:
         if st.button('リセット'):
@@ -154,7 +120,6 @@ def main():
     # 読み札を最後に表示
     if st.session_state.display_text['yomifuda']:
         st.markdown(f"### {st.session_state.display_text['yomifuda']}")
-
 
 if __name__ == '__main__':
     main()
